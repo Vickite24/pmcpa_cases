@@ -230,7 +230,8 @@ def parse(url):
                     if 'https://www.pmcpa.org.uk' not in link:
                         link = 'https://www.pmcpa.org.uk' + link
                     dic[f'File{str(c)}_Link'] = link
-                    download_pdf(link=link,filename=filename)
+                    if os.getenv("FOLDER_ID") and os.getenv("SHARED_DRIVE_ID"):
+    download_pdf(link=link, filename=filename)
 
                 else:
                     dic[f'File{str(c)}_Name'] = a_link.find(class_='title').text.strip()
@@ -320,64 +321,82 @@ def sanitize_filename(name: str, replacement: str = "") -> str:
 
 def saving():
     
-    credentials_info = get_api_key()
+ def saving():
+    import os, pandas, google.auth
+    from googleapiclient.discovery import build
 
-    SCOPES = ["https://www.googleapis.com/auth/spreadsheets",
-              "https://www.googleapis.com/auth/drive"]
+    SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
+    if not SPREADSHEET_ID:
+        print("SPREADSHEET_ID not set; skipping Sheets write.")
+        return
 
-    credentials = service_account.Credentials.from_service_account_info(credentials_info, scopes=SCOPES)
-    spreadsheet = build('sheets','v4',credentials=credentials)
+    # Debug lines so we can see what's happening in logs
+    print("DEBUG saving(): starting…")
+    print("DEBUG saving(): SPREADSHEET_ID =", SPREADSHEET_ID)
+    print("DEBUG saving(): rows collected =", len(save))
 
+    SCOPES = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds, _ = google.auth.default(scopes=SCOPES)
+    sheets = build('sheets', 'v4', credentials=creds)
 
-    sheet_id = '1vZ0iYB58h7mwWSFuxN1BJZ5aaiAXmtd3CZXbF27vSLk'
-    range_name = 'Sheet1!A1:AZ5000'
+    # TEMP: write a small test row first so we can verify write works
+    try:
+        sheets.spreadsheets().values().append(
+            spreadsheetId=SPREADSHEET_ID,
+            range='Sheet1!A1',
+            valueInputOption='RAW',
+            body={'values': [['TEST', 'Write OK', f'rows={len(save)}']]}
+        ).execute()
+        print("DEBUG saving(): test append done.")
+    except Exception as e:
+        print("DEBUG saving(): test append FAILED:", e)
 
-    keys = ['Case Name', 'Received','Completed','Date posted','Case number','Description','Description_2','Applicable Code year', 'Completed', 'No breach Clause(s)', 'Breach Clause(s)', 'Sanctions applied', 'Additional sanctions', 'Appeal', 'Review','Sanction', 'Case number/s', 'url', 'File1_Name', 'File1_Link', 'File1_FileName', 'File2_Name', 'File2_Link', 'File2_FileName', 'File3_Name', 'File3_Link', 'File3_FileName', 'File4_Name', 'File4_Link', 'File4_FileName', 'File5_Name', 'File5_Link', 'File5_FileName', 'File6_Name', 'File6_Link', 'File6_FileName', 'File7_Name', 'File7_Link', 'File7_FileName']
-    df2 = pandas.DataFrame()
-    df = pandas.DataFrame(save)
+    # Columns to output (kept from your original order)
+    keys = [
+        'Case Name','Received','Completed','Date posted','Case number',
+        'Description','Description_2','Applicable Code year','No breach Clause(s)',
+        'Breach Clause(s)','Sanctions applied','Additional sanctions','Appeal','Review',
+        'Sanction','Case number/s','url',
+        'File1_Name','File1_Link','File1_FileName',
+        'File2_Name','File2_Link','File2_FileName',
+        'File3_Name','File3_Link','File3_FileName',
+        'File4_Name','File4_Link','File4_FileName',
+        'File5_Name','File5_Link','File5_FileName',
+        'File6_Name','File6_Link','File6_FileName',
+        'File7_Name','File7_Link','File7_FileName'
+    ]
 
-    for keys_item in keys:
-        try:
-            df2[keys_item] = df[keys_item]
-        except:
-            pass
+    df_all = pandas.DataFrame(save)
+    df_out = pandas.DataFrame()
+    for k in keys:
+        if k in df_all.columns:
+            df_out[k] = df_all[k]
+    df_out = df_out.fillna('')
 
-    df2 = df2.fillna('')
-    column_names = df2.columns.tolist()
-    data_values = df2.values.tolist()
-    two_d_list = [column_names] + data_values
+    values = [df_out.columns.tolist()] + df_out.values.tolist()
+    body = {'values': values}
 
-    request_body = {
-            'values': two_d_list
-        }
-    
-    
-    # 1️⃣ Clear existing data
+    # Clear then write (same behavior as before)
+    try:
+        sheets.spreadsheets().values().clear(
+            spreadsheetId=SPREADSHEET_ID,
+            range='Sheet1!A1:AZ5000',
+            body={}
+        ).execute()
+    except Exception as e:
+        print("Clear failed (continuing):", e)
 
-    trial = 0
-    while True:
-        if trial ==10:
-            break
-        try:
-            spreadsheet.spreadsheets().values().clear(
-                spreadsheetId=sheet_id,
-                range=range_name,
-                body={}
-            ).execute()
-                        
-            spreadsheet.spreadsheets().values().update(
-                spreadsheetId=sheet_id,
-                range=range_name,
-                body=request_body,
-                valueInputOption='RAW'
-            ).execute()
+    sheets.spreadsheets().values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range='Sheet1!A1',
+        valueInputOption='RAW',
+        body=body
+    ).execute()
 
-            print('succefull save : ',len(two_d_list))
-            break
-        except Exception as e:
-            print(e)
-            trial += 1
-    
+    print(f"Saved {len(values)-1} rows to Google Sheet.")
 
 
 if __name__ == '__main__':
