@@ -7,6 +7,8 @@ from googleapiclient.http import MediaIoBaseUpload
 
 import io
 import re
+import os
+import google.auth
 
 # from keep_alive import keep_alive
 
